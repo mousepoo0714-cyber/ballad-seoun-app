@@ -1,5 +1,5 @@
 // 앱 화면만 저장(오프라인에서도 열림). GitHub API 는 항상 네트워크로.
-const CACHE = 'ballad-seoun-v1';
+const CACHE = 'ballad-seoun-v2';
 const SHELL = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
