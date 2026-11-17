@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>발라드 서운 스튜디오</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#14121a">
+<style>
+:root{--bg:#14121a;--card:#1f1c27;--line:#2e2a39;--text:#f2eee6;--sub:#a59fb2;--acc:#e8b86d;--ok:#7fc79a;--err:#e57a7a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:16px;line-height:1.5;padding-bottom:env(safe-area-inset-bottom)}
+header{position:sticky;top:0;z-index:5;background:rgba(20,18,26,.95);backdrop-filter:blur(8px);padding:14px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
+header h1{font-size:18px;margin:0;flex:1;letter-spacing:-.3px}
+header h1 small{color:var(--acc);font-weight:600}
+.wrap{padding:16px;max-width:720px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+button{font:inherit;border:0;border-radius:10px;padding:11px 14px;background:var(--line);color:var(--text);cursor:pointer}
+button.pri{background:var(--acc);color:#1b1408;font-weight:700}
+button.big{width:100%;padding:15px;font-size:17px}
+button.ghost{background:transparent;color:var(--sub);padding:6px 8px}
+button:disabled{opacity:.45}
+input,textarea{width:100%;font:inherit;color:var(--text);background:#17151e;border:1px solid var(--line);border-radius:10px;padding:11px}
+textarea{min-height:120px;resize:vertical}
+label{display:block;color:var(--sub);font-size:14px;margin:12px 0 6px}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+.song{display:flex;align-items:center;gap:12px}
+.song .t{flex:1;min-width:0}
+.song .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.song .t span{color:var(--sub);font-size:13px}
+.badge{font-size:12px;padding:4px 9px;border-radius:20px;background:var(--line);white-space:nowrap}
+.b-ready{background:var(--acc);color:#1b1408}
+.b-uploaded{background:var(--ok);color:#0e2a18}
+.b-error{background:var(--err);color:#2a0e0e}
+.b-making,.b-uploading,.b-queued{background:#3b3550}
+.muted{color:var(--sub);font-size:14px}
+video{width:100%;border-radius:10px;background:#000;margin-top:8px}
+.lines{max-height:55vh;overflow:auto;margin-top:8px}
+.ln{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.ln input{width:78px;flex:none;padding:7px;font-size:14px;text-align:center}
+.ln .tx{flex:1;font-size:14px}
+.ln.cur{background:#2a2535}
+.ln button{padding:7px 9px;font-size:14px}
+.tap{position:sticky;bottom:0;background:var(--card);padding-top:8px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:20px;font-size:14px;z-index:9;max-width:90%}
+details summary{cursor:pointer;font-weight:700;padding:4px 0}
+a{color:var(--acc)}
+.prog{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:8px}
+.prog i{display:block;height:100%;background:var(--acc);width:0;transition:width .3s}
+</style>
+</head>
+<body>
+<header>
+  <button class="ghost" id="back" style="display:none" onclick="go('list')">←</button>
+  <h1>발라드 서운 <small>스튜디오</small></h1>
+  <button class="ghost" onclick="go('settings')">⚙</button>
+</header>
+<div class="wrap" id="app"></div>
+
+<script>
+// ===================== 설정 / GitHub API =====================
+const S = {
+  get owner(){return localStorage.bs_owner||''}, get repo(){return localStorage.bs_repo||'ballad-seoun'},
+  get token(){return localStorage.bs_token||''}
+};
+const API = 'https://api.github.com';
+const $ = s => document.querySelector(s);
+const app = $('#app');
+let timer = null, view = 'list', curId = null, audioUrl = null;
+
+function toast(m, ms=2600){const d=document.createElement('div');d.className='toast';d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),ms)}
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+async function gh(path, opt={}){
+  const r = await fetch(`${API}/repos/${S.owner}/${S.repo}/${path}`, {
+    ...opt, headers:{Authorization:`Bearer ${S.token}`, Accept:'application/vnd.github+json',
+      'X-GitHub-Api-Version':'2022-11-28', ...(opt.headers||{})}});
+  if(!r.ok){const e=new Error(`GitHub ${r.status}`);e.status=r.status;try{e.body=await r.json()}catch(_){}throw e}
+  return r.status===204?null:r;
+}
+const b64enc = str => { const b=new TextEncoder().encode(str); let s=''; for(let i=0;i<b.length;i+=0x8000) s+=String.fromCharCode(...b.subarray(i,i+0x8000)); return btoa(s); };
+const b64dec = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\n/g,'')),c=>c.charCodeAt(0)));
+
+async function getJSON(path, ref='main'){
+  try{ const r=await gh(`contents/${path}?ref=${ref}&t=${Date.now()}`); const j=await r.json(); return {data:JSON.parse(b64dec(j.content)), sha:j.sha}; }
+  catch(e){ if(e.status===404) return {data:null,sha:null}; throw e; }
+}
+async function sha(path){ try{ const r=await gh(`contents/${path}?ref=main&t=${Date.now()}`); return (await r.json()).sha; }catch(e){ if(e.status===404) return null; throw e; } }
+async function put(path, b64, msg){
+  const body={message:msg, content:b64, branch:'main'}; const s=await sha(path); if(s) body.sha=s;
+  for(let i=0;i<3;i++){ try{ return await gh(`contents/${path}`,{method:'PUT',body:JSON.stringify(body)}); }
+    catch(e){ if(e.status===409||e.status===422){ body.sha=await sha(path)||undefined; await new Promise(r=>setTimeout(r,1500)); } else throw e; } }
+}
+const putJSON = (path, obj, msg) => put(path, b64enc(JSON.stringify(obj,null,2)), msg);
+async function raw(path, ref='main'){
+  const r = await gh(`contents/${path}?ref=${encodeURIComponent(ref)}`, {headers:{Accept:'application/vnd.github.raw'}});
+  return await r.blob();
+}
+async function dispatch(wf, inputs){ await gh(`actions/workflows/${wf}/dispatches`,{method:'POST',body:JSON.stringify({ref:'main',inputs})}); }
+async function runStep(wf, id){
+  try{
+    const r=await (await gh(`actions/workflows/${wf}/runs?per_page=15`)).json();
+    const run=(r.workflow_runs||[]).find(x=>x.display_title===`${wf.replace('.yml','')} ${id}`);
+    if(!run) return null;
+    if(run.status!=='completed'){
+      const j=await (await gh(`actions/runs/${run.id}/jobs`)).json();
+      const steps=(j.jobs?.[0]?.steps)||[]; const st=steps.find(s=>s.status==='in_progress');
+      const done=steps.filter(s=>s.status==='completed').length;
+      return {active:true, step:st?.name||'대기 중', pct:steps.length?Math.round(done/steps.length*100):5, url:run.html_url};
+    }
+    return {active:false, conclusion:run.conclusion, url:run.html_url};
+  }catch(e){return null}
+}
+
+// ===================== 화면 =====================
+function go(v, id){ view=v; curId=id||null; clearInterval(timer); $('#back').style.display = v==='list'?'none':'block';
+  if(!S.token||!S.owner){ return settings(); }
+  ({list, settings, add, detail})[v](); window.scrollTo(0,0); }
+
+const STATE = {queued:'대기 중', making:'제작 중', ready:'승인 대기', uploading:'업로드 중', uploaded:'업로드 완료', error:'오류'};
+
+function settings(){
+  $('#back').style.display = S.token?'block':'none';
+  app.innerHTML = `<div class="card">
+    <p class="muted">처음 한 번만 입력하면 이 폰에만 저장돼요.</p>
+    <label>GitHub 아이디</label><input id="o" value="${esc(S.owner)}" autocapitalize="off">
+    <label>저장소 이름</label><input id="r" value="${esc(S.repo)}" autocapitalize="off">
+    <label>GitHub 토큰 (Fine-grained, Contents·Actions 읽기/쓰기)</label><input id="k" type="password" value="${esc(S.token)}">
+    <div style="height:14px"></div><button class="pri big" id="sv">저장</button></div>`;
+  $('#sv').onclick = async ()=>{
+    localStorage.bs_owner=$('#o').value.trim(); localStorage.bs_repo=$('#r').value.trim(); localStorage.bs_token=$('#k').value.trim();
+    try{ await gh(''); toast('연결 성공'); go('list'); }catch(e){ toast('연결 실패: 아이디/저장소/토큰을 확인하세요'); }
+  };
+}
+
+async function list(){
+  app.innerHTML = `<button class="pri big" onclick="go('add')">＋ 새 곡 올리기</button><div style="height:14px"></div><div id="songs" class="muted">불러오는 중…</div>`;
+  let dirs=[];
+  try{ dirs = (await (await gh(`contents/songs?ref=main&t=${Date.now()}`)).json()).filter(x=>x.type==='dir').map(x=>x.name).sort().reverse(); }
+  catch(e){ if(e.status!==404){ $('#songs').textContent='불러오기 실패 — 설정을 확인하세요'; return; } }
+  if(!dirs.length){ $('#songs').innerHTML='<div class="card muted">아직 올린 곡이 없어요.</div>'; return; }
+  const rows = await Promise.all(dirs.slice(0,30).map(async id=>{
+    const [m,s]=await Promise.all([getJSON(`songs/${id}/meta.json`),getJSON(`songs/${id}/status.json`)]);
+    return {id, title:m.data?.title||id, state:s.data?.state||'queued'};
+  }));
+  $('#songs').innerHTML = rows.map(r=>`<div class="card song" onclick="go('detail','${r.id}')">
+    <div class="t"><b>${esc(r.title)}</b><span>${r.id.slice(0,4)}.${r.id.slice(4,6)}.${r.id.slice(6,8)}</span></div>
+    <span class="badge b-${r.state}">${STATE[r.state]||r.state}</span></div>`).join('');
+  if(rows.some(r=>['queued','making','uploading'].includes(r.state))) timer=setInterval(()=>view==='list'&&list(),20000);
+}
+
+function add(){
+  app.innerHTML = `<div class="card">
+    <label>곡 제목</label><input id="ti" placeholder="예) 그 겨울의 정류장">
+    <label>음원 파일 (수노에서 받은 mp3)</label><input id="fi" type="file" accept="audio/*,.mp3,.wav,.m4a">
+    <label>가사 (수노 가사 그대로 붙여넣기 — [Verse], [Chorus] 포함)</label>
+    <textarea id="ly" style="min-height:220px" placeholder="[Verse 1]&#10;첫 소절…&#10;&#10;[Chorus]&#10;후렴…"></textarea>
+    <label>분위기 메모 (선택) — 삽화 연출에 반영</label><input id="mo" placeholder="예) 첫눈 오는 밤, 버스 정류장, 이별 후 그리움">
+    <label>쇼츠 하이라이트 시작 (선택, 비우면 자동 — 예: 1:42)</label><input id="hs" placeholder="자동">
+    <div style="height:16px"></div><button class="pri big" id="go">올리고 영상 만들기</button>
+    <div class="prog"><i id="pg"></i></div><p class="muted" id="msg"></p></div>`;
+  $('#go').onclick = upload;
+}
+function parseTime(v){ v=String(v||'').trim(); if(!v) return null; const p=v.split(':').map(Number); if(p.some(isNaN)) return null; return p.length>1? p[0]*60+p[1] : p[0]; }
+function fmt(t){ t=Math.max(0,+t||0); const m=Math.floor(t/60), s=(t-m*60).toFixed(1).padStart(4,'0'); return `${m}:${s}`; }
+
+async function upload(){
+  const title=$('#ti').value.trim(), f=$('#fi').files[0], ly=$('#ly').value.trim();
+  if(!title||!f||!ly) return toast('제목, 음원, 가사를 모두 넣어주세요');
+  if(f.size>45*1024*1024) return toast('음원이 너무 커요 (45MB 이하 mp3로 받아주세요)');
+  const btn=$('#go'); btn.disabled=true; const pg=$('#pg'), msg=$('#msg');
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  const id=`${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  try{
+    msg.textContent='음원 올리는 중…'; pg.style.width='10%';
+    const b64 = await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result.split(',')[1]);r.onerror=no;r.readAsDataURL(f);});
+    await put(`songs/${id}/song.mp3`, b64, `음원 ${title}`); pg.style.width='60%';
+    msg.textContent='가사 올리는 중…';
+    await put(`songs/${id}/lyrics.txt`, b64enc(ly), `가사 ${title}`); pg.style.width='75%';
+    await putJSON(`songs/${id}/meta.json`, {title, mood:$('#mo').value.trim(), highlight_start:parseTime($('#hs').value)}, `정보 ${title}`);
+    await putJSON(`songs/${id}/status.json`, {state:'queued', message:'제작 대기', updated:new Date().toISOString()}, '대기');
+    pg.style.width='90%'; msg.textContent='제작 시작 요청…';
+    await dispatch('make.yml', {song_id:id, mode:'full'});
+    pg.style.width='100%'; toast('제작 시작! 보통 15~25분 걸려요', 4000); go('detail', id);
+  }catch(e){ console.error(e); msg.textContent='실패: '+(e.body?.message||e.message); btn.disabled=false; }
+}
+
+let D = null; // 현재 곡 데이터
+async function detail(){
+  const id=curId; app.innerHTML='<p class="muted">불러오는 중…</p>';
+  const [m,s,r,u,l]=await Promise.all(['meta','status','result','uploaded','lines'].map(n=>getJSON(`songs/${id}/${n}.json`)));
+  D={id, meta:m.data||{}, status:s.data||{state:'queued'}, result:r.data, uploaded:u.data, lines:l.data?.lines||[]};
+  const st=D.status.state, busy=['queued','making','uploading'].includes(st);
+  let h=`<div class="card"><div class="song"><div class="t"><b style="font-size:19px">${esc(D.meta.title)}</b>
+    <span>${esc(D.status.message||'')}</span></div><span class="badge b-${st}">${STATE[st]||st}</span></div>
+    <div id="run"></div></div>`;
+  if(D.uploaded?.long_url) h+=`<div class="card">✅ <a href="${D.uploaded.long_url}" target="_blank">롱폼 보기</a> · <a href="${D.uploaded.short_url}" target="_blank">쇼츠 보기</a></div>`;
+  if(D.result && !busy){
+    h+=`<div class="card"><b>미리보기</b>
+      <div class="row" style="margin-top:8px"><button onclick="loadVid('short')">▶ 쇼츠</button><button onclick="loadVid('long')">▶ 롱폼</button></div>
+      <div id="vid"></div>
+      <div class="row" style="margin-top:8px"><button onclick="dl('short')">⬇ 쇼츠 받기</button><button onclick="dl('long')">⬇ 롱폼 받기</button></div>
+      <div class="row" style="margin-top:8px"><button onclick="dl('thumb')">⬇ 썸네일 받기</button></div></div>
+    <div class="card"><details><summary>유튜브 제목·설명 수정</summary>
+      <label>롱폼 제목</label><input id="tl" value="${esc(D.result.title_long)}">
+      <label>롱폼 설명</label><textarea id="dlo">${esc(D.result.desc_long)}</textarea>
+      <label>쇼츠 제목</label><input id="ts" value="${esc(D.result.title_short)}">
+      <label>쇼츠 설명 ({LONG_URL} 자리에 롱폼 주소가 자동으로 들어가요)</label><textarea id="dsh">${esc(D.result.desc_short)}</textarea>
+      <label>태그 (쉼표로 구분)</label><textarea id="tg" style="min-height:70px">${esc((D.result.tags||[]).join(', '))}</textarea>
+      <div style="height:10px"></div><button onclick="saveText()">문구 저장</button></details></div>
+    <div class="card"><details id="tdet"><summary>가사 타이밍·하이라이트 수정</summary>
+      <p class="muted">가사가 어긋난 줄만 고치면 돼요. ▶로 그 줄부터 듣고, ⏱를 누르면 지금 재생 위치로 맞춰져요.</p>
+      <button onclick="loadAudio()" id="la">🎵 음원 불러오기</button><audio id="au" controls style="width:100%;margin-top:8px;display:none"></audio>
+      <label>쇼츠 하이라이트 시작 (현재 ${fmt(D.result.highlight_start)})</label>
+      <div class="row"><input id="hl" value="${fmt(D.meta.highlight_start ?? D.result.highlight_start)}"><button style="flex:none" onclick="$('#hl').value=fmt($('#au').currentTime)">⏱</button></div>
+      <div class="lines" id="lns"></div>
+      <div class="tap"><div class="row" style="margin-top:8px"><button onclick="tapMode()" id="tm">👆 따라 탭하기</button><button class="pri" onclick="rerender()">수정 반영해서 다시 만들기</button></div></div>
+    </details></div>`;
+    if(st!=='uploaded') h+=`<button class="pri big" onclick="approve()">✅ 승인하고 유튜브에 올리기</button><div style="height:10px"></div>`;
+    h+=`<button class="big" onclick="remake()">🎨 삽화부터 전부 새로 만들기</button>`;
+  }
+  if(st==='error') h+=`<div style="height:10px"></div><button class="big" onclick="remake()">🔁 다시 시도</button>`;
+  app.innerHTML=h;
+  if(D.result && !busy) drawLines();
+  if(busy) poll();
+}
+
+async function poll(){
+  const wf = D.status.state==='uploading'?'upload.yml':'make.yml';
+  const tick = async ()=>{
+    if(view!=='detail') return;
+    const r = await runStep(wf, D.id);
+    if(r?.active) $('#run').innerHTML=`<div class="prog"><i style="width:${r.pct}%"></i></div><p class="muted">지금: ${esc(r.step)}</p>`;
+    else if(r && !r.active){ clearInterval(timer); detail(); }
+  };
+  tick(); timer=setInterval(tick, 15000);
+}
+
+function drawLines(cur=-1){
+  $('#lns').innerHTML = D.lines.map((l,i)=>`<div class="ln ${i===cur?'cur':''}" id="ln${i}">
+    <button onclick="playAt(${i})">▶</button><input value="${fmt(l.start)}" onchange="D.lines[${i}].start=parseTime(this.value)??D.lines[${i}].start">
+    <div class="tx">${esc(l.text)}</div><button onclick="stamp(${i})">⏱</button></div>`).join('');
+}
+async function loadAudio(){
+  const au=$('#au'); $('#la').textContent='불러오는 중…';
+  if(!audioUrl||audioUrl.id!==D.id){ const b=await raw(`songs/${D.id}/song.mp3`); audioUrl={id:D.id,url:URL.createObjectURL(b)}; }
+  au.src=audioUrl.url; au.style.display='block'; $('#la').style.display='none';
+}
+async function playAt(i){ const au=$('#au'); if(!au.src) await loadAudio(); au.currentTime=Math.max(0,D.lines[i].start-0.3); au.play(); }
+function stamp(i){ const au=$('#au'); if(!au.src) return toast('먼저 음원을 불러오세요'); D.lines[i].start=+au.currentTime.toFixed(2); drawLines(i); }
+let tapIdx=-1;
+async function tapMode(){
+  const au=$('#au'); if(!au.src) await loadAudio();
+  if(tapIdx<0){ tapIdx=0; au.currentTime=Math.max(0,D.lines[0].start-5); au.play(); $('#tm').textContent='👆 지금 줄 시작! (1)'; $('#tm').classList.add('pri');
+    toast('각 줄이 시작될 때마다 버튼을 누르세요'); return; }
+  D.lines[tapIdx].start=+au.currentTime.toFixed(2); drawLines(tapIdx); $('#ln'+tapIdx)?.scrollIntoView({block:'center'});
+  tapIdx++; if(tapIdx>=D.lines.length){ tapIdx=-1; au.pause(); $('#tm').textContent='👆 따라 탭하기'; $('#tm').classList.remove('pri'); toast('끝! 이제 "수정 반영"을 누르세요'); }
+  else $('#tm').textContent=`👆 지금 줄 시작! (${tapIdx+1})`;
+}
+function fixEnds(){
+  const L=D.lines, dur=D.result?.duration||1e9;
+  L.sort((a,b)=>a.start-b.start);
+  L.forEach((l,i)=>{ const nx=i+1<L.length?L[i+1].start:dur; const len=Math.max(1.5,(l.end||l.start+3)-l.start);
+    l.end = +(nx-l.start<len+6 ? nx-0.05 : Math.min(nx-0.05,l.start+len)).toFixed(2); });
+}
+async function rerender(){
+  try{
+    fixEnds(); toast('저장 중…');
+    await putJSON(`songs/${D.id}/lines.json`, {manual:true, lines:D.lines}, '가사 타이밍 수정');
+    const hl=parseTime($('#hl').value); D.meta.highlight_start=hl;
+    await putJSON(`songs/${D.id}/meta.json`, D.meta, '하이라이트 수정');
+    await putJSON(`songs/${D.id}/status.json`, {state:'queued', message:'다시 만드는 중', updated:new Date().toISOString()}, '대기');
+    await dispatch('make.yml', {song_id:D.id, mode:'rerender'}); toast('다시 만들기 시작 (약 5~10분)'); detail();
+  }catch(e){ toast('실패: '+(e.body?.message||e.message)); }
+}
+async function remake(){
+  if(!confirm('삽화부터 전부 새로 만들까요? (15~25분)')) return;
+  await putJSON(`songs/${D.id}/status.json`, {state:'queued', message:'새로 만드는 중', updated:new Date().toISOString()}, '대기');
+  await dispatch('make.yml', {song_id:D.id, mode:'full'}); toast('새로 만들기 시작'); detail();
+}
+function collectText(){
+  return {...D.result, edited:true, title_long:$('#tl').value.trim(), desc_long:$('#dlo').value, title_short:$('#ts').value.trim(),
+    desc_short:$('#dsh').value, tags:$('#tg').value.split(',').map(s=>s.trim()).filter(Boolean)};
+}
+async function saveText(){ try{ D.result=collectText(); await putJSON(`songs/${D.id}/result.json`, D.result, '문구 수정'); toast('저장됨'); }catch(e){ toast('저장 실패'); } }
+async function approve(){
+  if(!confirm('롱폼과 쇼츠를 유튜브에 바로 올릴까요?')) return;
+  try{
+    D.result=collectText(); await putJSON(`songs/${D.id}/result.json`, D.result, '승인');
+    await putJSON(`songs/${D.id}/status.json`, {state:'uploading', message:'유튜브에 올리는 중', updated:new Date().toISOString()}, '승인');
+    await dispatch('upload.yml', {song_id:D.id}); toast('업로드 시작!'); detail();
+  }catch(e){ toast('실패: '+(e.body?.message||e.message)); }
+}
+const blobs={};
+async function getMedia(kind){
+  const key=D.id+kind; if(blobs[key]) return blobs[key];
+  const name = kind==='thumb'?'thumb.jpg':`${kind}.mp4`;
+  toast(kind==='long'?'롱폼 불러오는 중… (용량이 커서 조금 걸려요)':'불러오는 중…', 4000);
+  blobs[key]=await raw(name, `m-${D.id}`); return blobs[key];
+}
+async function loadVid(kind){
+  try{ const b=await getMedia(kind); $('#vid').innerHTML=`<video controls playsinline src="${URL.createObjectURL(b)}"></video>`; $('#vid video').play(); }
+  catch(e){ toast('영상을 불러오지 못했어요'); }
+}
+async function dl(kind){
+  try{ const b=await getMedia(kind); const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+    const t=(D.meta.title||D.id).replace(/[\\/:*?"<>|]/g,''); a.download = kind==='thumb'?`${t}_썸네일.jpg`:`${t}_${kind==='long'?'롱폼':'쇼츠'}.mp4`; a.click(); }
+  catch(e){ toast('받기 실패'); }
+}
+
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+go('list');
+</script>
+</body>
+</html>
