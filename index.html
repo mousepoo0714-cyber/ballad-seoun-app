@@ -157,9 +157,8 @@ function add(){
   app.innerHTML = `<div class="card">
     <label>곡 제목</label><input id="ti" placeholder="예) 그 겨울의 정류장">
     <label>음원 파일 (수노에서 받은 mp3)</label><input id="fi" type="file" accept="audio/*,.mp3,.wav,.m4a">
-    <label>가사 (수노 가사 그대로 붙여넣기 — [Verse], [Chorus] 포함)</label>
+    <label>가사 (수노 가사 그대로 — 유튜브 설명란과 삽화 스토리에 쓰여요)</label>
     <textarea id="ly" style="min-height:220px" placeholder="[Verse 1]&#10;첫 소절…&#10;&#10;[Chorus]&#10;후렴…"></textarea>
-    <label>분위기 메모 (선택) — 삽화 연출에 반영</label><input id="mo" placeholder="예) 첫눈 오는 밤, 버스 정류장, 이별 후 그리움">
     <label>쇼츠 하이라이트 시작 (선택, 비우면 자동 — 예: 1:42)</label><input id="hs" placeholder="자동">
     <div style="height:16px"></div><button class="pri big" id="go">올리고 영상 만들기</button>
     <div class="prog"><i id="pg"></i></div><p class="muted" id="msg"></p></div>`;
@@ -181,7 +180,7 @@ async function upload(){
     await put(`songs/${id}/song.mp3`, b64, `음원 ${title}`); pg.style.width='60%';
     msg.textContent='가사 올리는 중…';
     await put(`songs/${id}/lyrics.txt`, b64enc(ly), `가사 ${title}`); pg.style.width='75%';
-    await putJSON(`songs/${id}/meta.json`, {title, mood:$('#mo').value.trim(), highlight_start:parseTime($('#hs').value)}, `정보 ${title}`);
+    await putJSON(`songs/${id}/meta.json`, {title, highlight_start:parseTime($('#hs').value)}, `정보 ${title}`);
     await putJSON(`songs/${id}/status.json`, {state:'queued', message:'제작 대기', updated:new Date().toISOString()}, '대기');
     pg.style.width='90%'; msg.textContent='제작 시작 요청…';
     await dispatch('make.yml', {song_id:id, mode:'full'});
@@ -212,20 +211,18 @@ async function detail(){
       <label>쇼츠 설명 ({LONG_URL} 자리에 롱폼 주소가 자동으로 들어가요)</label><textarea id="dsh">${esc(D.result.desc_short)}</textarea>
       <label>태그 (쉼표로 구분)</label><textarea id="tg" style="min-height:70px">${esc((D.result.tags||[]).join(', '))}</textarea>
       <div style="height:10px"></div><button onclick="saveText()">문구 저장</button></details></div>
-    <div class="card"><details id="tdet"><summary>가사 타이밍·하이라이트 수정</summary>
-      <p class="muted">가사가 어긋난 줄만 고치면 돼요. ▶로 그 줄부터 듣고, ⏱를 누르면 지금 재생 위치로 맞춰져요.</p>
+    <div class="card"><details id="tdet"><summary>쇼츠 하이라이트 구간 바꾸기</summary>
+      <p class="muted">음원을 들으면서 쇼츠가 시작될 위치에서 ⏱를 누르세요. 그 지점부터 45초가 쇼츠가 돼요.</p>
       <button onclick="loadAudio()" id="la">🎵 음원 불러오기</button><audio id="au" controls style="width:100%;margin-top:8px;display:none"></audio>
-      <label>쇼츠 하이라이트 시작 (현재 ${fmt(D.result.highlight_start)})</label>
+      <label>쇼츠 시작 위치 (현재 ${fmt(D.result.highlight_start)})</label>
       <div class="row"><input id="hl" value="${fmt(D.meta.highlight_start ?? D.result.highlight_start)}"><button style="flex:none" onclick="$('#hl').value=fmt($('#au').currentTime)">⏱</button></div>
-      <div class="lines" id="lns"></div>
-      <div class="tap"><div class="row" style="margin-top:8px"><button onclick="tapMode()" id="tm">👆 따라 탭하기</button><button class="pri" onclick="rerender()">수정 반영해서 다시 만들기</button></div></div>
+      <div style="height:10px"></div><button class="pri big" onclick="rerender()">이 구간으로 다시 만들기</button>
     </details></div>`;
     if(st!=='uploaded') h+=`<button class="pri big" onclick="approve()">✅ 승인하고 유튜브에 올리기</button><div style="height:10px"></div>`;
     h+=`<button class="big" onclick="remake()">🎨 삽화부터 전부 새로 만들기</button>`;
   }
   if(st==='error') h+=`<div style="height:10px"></div><button class="big" onclick="remake()">🔁 다시 시도</button>`;
   app.innerHTML=h;
-  if(D.result && !busy) drawLines();
   if(busy) poll();
 }
 
@@ -269,12 +266,11 @@ function fixEnds(){
 }
 async function rerender(){
   try{
-    fixEnds(); toast('저장 중…');
-    await putJSON(`songs/${D.id}/lines.json`, {manual:true, lines:D.lines}, '가사 타이밍 수정');
+    toast('저장 중…');
     const hl=parseTime($('#hl').value); D.meta.highlight_start=hl;
     await putJSON(`songs/${D.id}/meta.json`, D.meta, '하이라이트 수정');
     await putJSON(`songs/${D.id}/status.json`, {state:'queued', message:'다시 만드는 중', updated:new Date().toISOString()}, '대기');
-    await dispatch('make.yml', {song_id:D.id, mode:'rerender'}); toast('다시 만들기 시작 (약 5~10분)'); detail();
+    await dispatch('make.yml', {song_id:D.id, mode:'rerender'}); toast('다시 만들기 시작 (약 10분)'); detail();
   }catch(e){ toast('실패: '+(e.body?.message||e.message)); }
 }
 async function remake(){
