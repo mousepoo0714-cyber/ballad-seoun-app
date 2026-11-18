@@ -204,11 +204,17 @@ async function detail(){
       <div id="vid"></div>
       <div class="row" style="margin-top:8px"><button onclick="dl('short')">⬇ 쇼츠 받기</button><button onclick="dl('long')">⬇ 롱폼 받기</button></div>
       <div class="row" style="margin-top:8px"><button onclick="dl('thumb')">⬇ 썸네일 받기</button></div></div>
-    <div class="card"><details><summary>유튜브 제목·설명 수정</summary>
+    <div class="card"><details><summary>유튜브 제목·설명·재생목록 수정</summary>
       <label>롱폼 제목</label><input id="tl" value="${esc(D.result.title_long)}">
       <label>롱폼 설명</label><textarea id="dlo">${esc(D.result.desc_long)}</textarea>
       <label>쇼츠 제목</label><input id="ts" value="${esc(D.result.title_short)}">
       <label>쇼츠 설명 ({LONG_URL} 자리에 롱폼 주소가 자동으로 들어가요)</label><textarea id="dsh">${esc(D.result.desc_short)}</textarea>
+      <label>재생목록 분위기 (롱폼이 「전곡」과 함께 들어갈 재생목록)</label>
+      <select id="pm" style="width:100%;font:inherit;color:var(--text);background:#17151e;border:1px solid var(--line);border-radius:10px;padding:11px">
+        <option value="이별" ${D.result.playlist_mood==='이별'?'selected':''}>이별 · 그리움</option>
+        <option value="위로" ${D.result.playlist_mood==='위로'?'selected':''}>위로 · 잔잔한 밤</option>
+        <option value="" ${!D.result.playlist_mood?'selected':''}>전곡 재생목록에만</option>
+      </select>
       <label>태그 (쉼표로 구분)</label><textarea id="tg" style="min-height:70px">${esc((D.result.tags||[]).join(', '))}</textarea>
       <div style="height:10px"></div><button onclick="saveText()">문구 저장</button></details></div>
     <div class="card"><details id="tdet"><summary>쇼츠 하이라이트 구간 바꾸기</summary>
@@ -280,7 +286,7 @@ async function remake(){
 }
 function collectText(){
   return {...D.result, edited:true, title_long:$('#tl').value.trim(), desc_long:$('#dlo').value, title_short:$('#ts').value.trim(),
-    desc_short:$('#dsh').value, tags:$('#tg').value.split(',').map(s=>s.trim()).filter(Boolean)};
+    desc_short:$('#dsh').value, playlist_mood:$('#pm').value, tags:$('#tg').value.split(',').map(s=>s.trim()).filter(Boolean)};
 }
 async function saveText(){ try{ D.result=collectText(); await putJSON(`songs/${D.id}/result.json`, D.result, '문구 수정'); toast('저장됨'); }catch(e){ toast('저장 실패'); } }
 async function approve(){
